@@ -385,19 +385,64 @@ class RemarkableUsbDevice(DeviceConfig, DevicePlugin):
     @log_args_kwargs
     def delete_books(self, paths, end_session=True):
         """
-        Delete books at paths on device.
+        Delete books at paths on device, plus any folders that become empty as a result.
         """
         settings = self.settings_obj()
         has_ssh = rm_ssh.test_connection(settings)
         if not has_ssh:
             raise SystemError("This feature requires SSH")
 
-        # we assume the path generated in create_upload_path is unique
         LOGGER.debug(f"{paths=}")
-        paths = [b.rm_uuid for b in self.load_booklist(settings) if b.path in paths]
-        rm_ssh.rm(settings, paths=" ".join(f"{u}*" for u in paths))
+        # Skip books without an rm_uuid — they aren't on the device (or we
+        # never learned their uuid). An empty uuid here would expand to
+        # `rm *` in the xochitl dir, which would nuke everything.
+        book_uuids = [b.rm_uuid for b in self.load_booklist(settings) if b.path in paths and b.rm_uuid]
+        if not book_uuids:
+            return
+
+        empty_folder_uuids = []
+        try:
+            tree = rm_web_interface.query_tree(settings.IP, "")
+            empty_folder_uuids = self._find_cascade_empty_folders(tree, set(book_uuids))
+        except:  # noqa: E722
+            LOGGER.warning("Could not identify empty folders for cleanup", exc_info=True)
+
+        targets = list(book_uuids) + empty_folder_uuids
+        LOGGER.info(f"Deleting {len(book_uuids)} book(s) and {len(empty_folder_uuids)} now-empty folder(s)")
+        rm_ssh.rm(settings, paths=" ".join(f"{u}*" for u in targets))
 
         rm_ssh.xochitl_restart_after(settings, 5.0)
+
+    @staticmethod
+    def _find_cascade_empty_folders(tree, deleted_book_uuids):
+        """Given a tree snapshot and a set of book uuids being deleted, return
+        the list of folder uuids that should also be deleted because their
+        only contents are those books (or other folders that become empty as
+        a result, recursively up the chain)."""
+        folder_to_parent = {}
+        folder_children_ids = {}
+        book_parents = set()
+        for child, parent_id in tree.walk_with_parent():
+            if child.document.Type == rm_web_interface.TypeOfDocument.CollectionType:
+                folder_to_parent[child.document.ID] = parent_id
+                folder_children_ids[child.document.ID] = {c.document.ID for c in child.children}
+            if child.document.ID in deleted_book_uuids:
+                book_parents.add(parent_id)
+
+        to_delete = set(deleted_book_uuids)
+        candidates = book_parents - {""}
+        cascade = []
+        while candidates:
+            empty_now = [
+                fid for fid in candidates
+                if fid in folder_children_ids and folder_children_ids[fid].issubset(to_delete)
+            ]
+            if not empty_now:
+                break
+            cascade.extend(empty_now)
+            to_delete.update(empty_now)
+            candidates = {folder_to_parent[fid] for fid in empty_now if fid in folder_to_parent} - {""}
+        return cascade
 
     @classmethod
     def remove_books_from_metadata(cls, paths, booklists):

@@ -86,6 +86,12 @@ class Node:
                 result.update({f"{c.visible_name}/{name}": id for name, id in c.ls_dir_recursive_dict().items()})
         return result
 
+    def walk_with_parent(self: "Node", my_id: str = ""):
+        """Yield (child_node, parent_id) for every ChildNode in this tree."""
+        for c in self.children:
+            yield c, my_id
+            yield from c.walk_with_parent(c.document.ID)
+
 
 @dataclasses.dataclass
 class ChildNode(Node):
