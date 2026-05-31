@@ -344,9 +344,12 @@ class RemarkableUsbDevice(DeviceConfig, DevicePlugin):
             booklist_on_device = [b for b in bookslist if b.path in existing_docs or b.rm_uuid in existing_docs]
             LOGGER.info("got booklist_on_device=%s", booklist_on_device)
         except:  # noqa: E722
-            LOGGER.warning("Unable to get metadata", exc_info=True)
-            rm_ssh.init_metadata(settings)
-            booklist_on_device = []
+            # Bail out without writing. The previous behavior was to overwrite
+            # the device's metadata file with `[]` on any transient failure,
+            # which silently destroyed the entire booklist. Skipping the sync
+            # leaves the existing file intact; the next sync gets another try.
+            LOGGER.warning("Could not read device booklist; skipping sync to avoid clobbering metadata", exc_info=True)
+            return booklist0, None, None
 
         # TOOD optimize this, maybe somehow hash RemarkableBookList
         for book in booklist0:
@@ -370,8 +373,13 @@ class RemarkableUsbDevice(DeviceConfig, DevicePlugin):
         return booklist0, None, None
 
     def load_booklist(self, settings: RemarkableSettings):
-        json_dict = json.loads(rm_ssh.cat(settings, settings.CALIBRE_METADATA_PATH)) or []
-        return list(map(lambda x: RemarkableBook(**x), json_dict))
+        # A missing or empty metadata file is benign — treat it as "no books
+        # tracked yet" rather than raising, so a first-time sync doesn't get
+        # treated as a fatal read error.
+        raw = rm_ssh.cat(settings, settings.CALIBRE_METADATA_PATH)
+        if not raw:
+            return []
+        return [RemarkableBook(**x) for x in json.loads(raw)]
 
     @log_args_kwargs
     def prepare_addable_books(self, paths):

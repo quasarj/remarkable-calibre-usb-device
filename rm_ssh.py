@@ -65,19 +65,6 @@ def _touch_fs(settings: RemarkableSettings):
 
 
 @log_args_kwargs
-def init_metadata(settings: RemarkableSettings):
-    p = subprocess.Popen(
-        ["ssh", *ssh_options2, ssh_address(settings), f"echo [] > {settings.CALIBRE_METADATA_PATH}"],
-        shell=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        creationflags=subprocess_creation_flags,
-    )
-    p.wait()
-    return p.returncode == 0
-
-
-@log_args_kwargs
 def scp(settings: RemarkableSettings, src_file: str, dest: str):
     p = subprocess.run(
         ["scp", src_file, f"{ssh_address(settings)}:{dest}"],
