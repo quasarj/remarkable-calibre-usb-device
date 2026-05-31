@@ -26,7 +26,7 @@ Go to `Preferences-->Plugins-->Show only user installed plugins`, select the plu
 
 ![](img/calibre_settings.png)
 
-The password field is for future use and DOES NOT WORK yet and is only there for future use. You **need to setup an SSH certificate** (see [here](https://remarkable.guide/guide/access/ssh.html))
+You **need to setup an SSH certificate** (see [here](https://remarkable.guide/guide/access/ssh.html)) — the plugin does not support password authentication.
 
 Usage
 -----

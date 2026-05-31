@@ -27,8 +27,6 @@ subprocess_creation_flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 
 
 def ssh_address(settings: RemarkableSettings):
     return f"root@{settings.IP}"
-    # FIXME
-    return f"root:{settings.SSH_PASSWORD}@{settings.IP}" if settings.SSH_PASSWORD else f"root@{settings.IP}"
 
 
 @log_args_kwargs

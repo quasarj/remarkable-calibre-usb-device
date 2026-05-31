@@ -58,14 +58,10 @@ class RemarkableUsbDevice(DeviceConfig, DevicePlugin):
     SAVE_TEMPLATE = "calibre/{author_sort}/{title} - {authors}"  # type: ignore
 
     EXTRA_CUSTOMIZATION_MESSAGE = [  # type: ignore
-        # -----------
         "IP address:::" "<p>" "Use this option if you want to force the driver to listen on a " "particular IP address." "</p>",
-        # -----------
-        "SSH password (optional):::" "<p>Required for folders support</p>",
     ]
     EXTRA_CUSTOMIZATION_DEFAULT = [  # type: ignore
         "10.11.99.1",
-        "",
     ]
 
     def config_widget(self):
@@ -87,7 +83,9 @@ class RemarkableUsbDevice(DeviceConfig, DevicePlugin):
     @classmethod
     def settings_obj(cls):
         settings = cls.settings()
-        return RemarkableSettings(*settings.extra_customization)
+        # Index rather than splat: tolerates leftover trailing entries
+        # (e.g. SSH_PASSWORD) from an older plugin version's saved settings.
+        return RemarkableSettings(IP=settings.extra_customization[0])
 
     @log_args_kwargs
     def startup(self):
