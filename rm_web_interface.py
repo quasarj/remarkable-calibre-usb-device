@@ -1,10 +1,7 @@
 # %%
 import dataclasses
-import io
 import json
 import logging
-import mimetypes
-import uuid
 from enum import Enum
 from urllib import request
 
@@ -102,80 +99,6 @@ class ChildNode(Node):
         return self.document.VissibleName
 
 
-class MultiPartForm:
-    """Accumulate the data to be used when posting a form."""
-
-    def __init__(self):
-        self.form_fields = []
-        self.files = []
-        # Use a large random byte string to separate
-        # parts of the MIME data.
-        self.boundary = ("------" + uuid.uuid4().hex).encode("utf-8")
-        return
-
-    def get_content_type(self):
-        return "multipart/form-data; boundary={}".format(self.boundary.decode("utf-8"))
-
-    def add_field(self, name, value):
-        """Add a simple field to the form data."""
-        self.form_fields.append((name, value))
-
-    def add_file(self, fieldname, filename, fileHandle, mimetype=None):
-        """Add a file to be uploaded."""
-        body = fileHandle.read()
-        if mimetype is None:
-            mimetype = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-        self.files.append((fieldname, filename, mimetype, body))
-        return
-
-    @staticmethod
-    def _form_data(name):
-        return ('Content-Disposition: form-data; name="{}"\r\n').format(name).encode("utf-8")
-
-    @staticmethod
-    def _attached_file(name, filename):
-        return (
-            # ('Content-Disposition: file; name="{}"; filename="{}"\r\n')
-            ('Content-Disposition: form-data; name="{}"; filename="{}"\r\n')
-            .format(name, filename)
-            .encode("utf-8")
-        )
-
-    @staticmethod
-    def _content_type(ct):
-        return "Content-Type: {}\r\n".format(ct).encode("utf-8")
-
-    def __bytes__(self):
-        """Return a byte-string representing the form data,
-        including attached files.
-        """
-        buffer = io.BytesIO()
-        boundary = b"--" + self.boundary + b"\r\n"
-
-        # Add the form fields
-        for name, value in self.form_fields:
-            buffer.write(boundary)
-            buffer.write(self._form_data(name))
-            buffer.write(b"\r\n")
-            buffer.write(value.encode("utf-8"))
-            buffer.write(b"\r\n")
-
-        # Add the files to upload
-        for f_name, filename, f_content_type, body in self.files:
-            buffer.write(boundary)
-            buffer.write(self._attached_file(f_name, filename))
-            buffer.write(self._content_type(f_content_type))
-            buffer.write(b"\r\n")
-            buffer.write(body)
-            buffer.write(b"\r\n")
-
-        buffer.write(b"--" + self.boundary + b"--\r\n")
-        return buffer.getvalue()
-
-
-# %%
-
-
 def query_document(ip, path_id, **kwargs):
     base_url = f"http://{ip}"
     headers = {}
@@ -187,40 +110,6 @@ def query_document(ip, path_id, **kwargs):
         req.add_header(k, v)
     with request.urlopen(req, **kwargs) as conn:
         return json.loads(conn.read())
-
-
-# class NonRaisingHTTPErrorProcessor(request.HTTPErrorProcessor):
-#    http_response = https_response = lambda self, request, response: response
-
-
-def upload_file(ip, local_path, folder_id, visible_name, **kwargs):
-    base_url = f"http://{ip}"
-    headers = {
-        "Origin": f"{base_url}",
-        "Accept": "*/*",
-        "Referer": f"{base_url}/",
-        "Connection": "keep-alive",
-    }
-
-    # position pointer on folder
-    resp = query_document(ip, folder_id)
-    LOGGER.debug(f"{resp=}")
-
-    # upload
-    with open(local_path, "rb") as fp:
-        url = f"{base_url}/upload"
-        form = MultiPartForm()
-        form.add_file("file", visible_name, fp)
-        data = bytes(form)
-        req = request.Request(url, data=data)
-        for k, v in headers.items():
-            req.add_header(k, v)
-        req.add_header("Content-Length", len(data))
-        req.add_header("Content-Type", form.get_content_type())
-        # opener = request.build_opener(NonRaisingHTTPErrorProcessor)
-        # with opener.open(req, **kwargs) as conn:
-        with request.urlopen(req, **kwargs) as conn:
-            return json.loads(conn.read())
 
 
 def check_connection(ip: str):

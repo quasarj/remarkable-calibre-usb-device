@@ -1,4 +1,13 @@
 
+> **Note about this fork:** uploads now go through SSH (writing the xochitl
+> on-disk layout directly via `scp`) instead of the USB web interface. SSH
+> is therefore **required** — there is no longer a web-upload fallback for
+> users without it. In exchange, uploads are *significantly* faster. The
+> tradeoff is that books aren't pre-processed during the upload itself —
+> xochitl converts each one the first time you open it on the device
+> (background conversion does happen if you give the tablet a minute to
+> settle after the upload).
+
 A Calibre [Device Plugin](https://manual.calibre-ebook.com/plugins.html#module-calibre.devices.interface) for Remarkable 2 / Remarkable Paper Pro.
 
 The plugin supports folders and will create the necessary folder structure on the Remarkable (by default under `calibre/{author_sort}/{title} - {authors}`, News feeds are uploaded to a separate folder `News`)

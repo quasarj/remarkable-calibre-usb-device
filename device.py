@@ -166,16 +166,18 @@ class RemarkableUsbDevice(DeviceConfig, DevicePlugin):
         self.progress = 0.0
         settings = self.settings_obj()
 
+        if not rm_ssh.test_connection(settings):
+            raise SystemError("This plugin requires SSH access to the Remarkable.")
+
         if not metadata:
             metadata = [None] * len(files_original)
         step = 100 / len(files_original)
-        has_ssh = rm_ssh.test_connection(settings)
-        existing_folders = rm_web_interface.query_tree(settings.IP, "").ls_dir_recursive_dict() if has_ssh else {}
+        existing_folders = rm_web_interface.query_tree(settings.IP, "").ls_dir_recursive_dict()
         needs_reboot = False
         for local_path, visible_name, m in zip(files_original, names, metadata):
             folder_id_final = ""
             upload_path = self._create_upload_path(m, visible_name)
-            if has_ssh and upload_path:
+            if upload_path:
                 parts = upload_path.split("/")
                 parts = parts[:-1]
                 display_parts = [self._unsanitize_folder_part(p, m) for p in parts]
@@ -197,31 +199,26 @@ class RemarkableUsbDevice(DeviceConfig, DevicePlugin):
                     parent_folder_id = folder_id_final
             locations.append(upload_path)
 
-            if has_ssh:
-                file_type = pathlib.Path(local_path).suffix.lower().lstrip(".")
-                # Prefer the real title from Calibre's metadata. `visible_name`
-                # is the filename Calibre generated via `ascii_filename`, which
-                # substitutes characters like apostrophe (ASCII 39) with `_39`.
-                title = m.get("title") if m is not None else None
-                display_name = title or pathlib.Path(visible_name).stem
-                file_uuid = rm_ssh.upload_document(
-                    settings,
-                    local_path,
-                    display_name,
-                    file_type=file_type,
-                    parent_id=folder_id_final,
-                )
-                if m is not None:
-                    m.set_user_metadata(RM_UUID, {"#value#": file_uuid, "datatype": "text"})
-                needs_reboot = True
-            else:
-                # Web fallback. Note: this path still fails when the author/title
-                # contains characters the web upload can't handle (e.g. ';').
-                rm_web_interface.upload_file(settings.IP, local_path, folder_id_final, visible_name)
+            file_type = pathlib.Path(local_path).suffix.lower().lstrip(".")
+            # Prefer the real title from Calibre's metadata. `visible_name`
+            # is the filename Calibre generated via `ascii_filename`, which
+            # substitutes characters like apostrophe (ASCII 39) with `_39`.
+            title = m.get("title") if m is not None else None
+            display_name = title or pathlib.Path(visible_name).stem
+            file_uuid = rm_ssh.upload_document(
+                settings,
+                local_path,
+                display_name,
+                file_type=file_type,
+                parent_id=folder_id_final,
+            )
+            if m is not None:
+                m.set_user_metadata(RM_UUID, {"#value#": file_uuid, "datatype": "text"})
+            needs_reboot = True
 
             self.progress += step
 
-        if needs_reboot and has_ssh:
+        if needs_reboot:
             rm_ssh.xochitl_restart_after(settings, 5.0)
         self.progress = 100.0
 
