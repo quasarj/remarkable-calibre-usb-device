@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import logging
 import os
 import pathlib
@@ -10,6 +11,8 @@ import uuid
 
 from .log_helper import log_args_kwargs  # type: ignore
 from .rm_data import RemarkableSettings
+
+LOGGER = logging.getLogger("remarkable-calibre-usb-device")
 
 XOCHITL_BASE_FOLDER = "~/.local/share/remarkable/xochitl"
 default_prepdir = tempfile.mkdtemp(prefix="resync-")
@@ -107,7 +110,7 @@ def test_connection(settings: RemarkableSettings):
             return p.returncode == 0
         return True
     except:  # noqa: E722
-        logging.warn("SSH connection failed", exc_info=True)
+        LOGGER.warning("SSH connection failed", exc_info=True)
         return False
 
 
@@ -165,7 +168,7 @@ def cat(settings: RemarkableSettings, file: str):
         return None
 
     result = p.stdout.strip()
-    logging.getLogger().debug(f"cat {result=}")
+    LOGGER.debug(f"cat {result=}")
     return result
 
 
@@ -173,27 +176,33 @@ def cat(settings: RemarkableSettings, file: str):
 def mkdir(settings: RemarkableSettings, visible_name, parent_id=""):
     file_id = str(uuid.uuid4())
     with tempfile.TemporaryDirectory() as tmp_folder:
-        file_metadata = f"{file_id}.metadata"
-        file_content = f"{file_id}.content"
+        metadata_path = pathlib.Path(tmp_folder, f"{file_id}.metadata")
+        content_path = pathlib.Path(tmp_folder, f"{file_id}.content")
         current_timestamp_str = str(int(time.time()))
-        with open(pathlib.Path(tmp_folder, file_metadata), "w+") as fp:
-            metadata_json = (
-                '{"createdTime": "'
-                + current_timestamp_str
-                + '",    "lastModified": "'
-                + current_timestamp_str
-                + '",    "parent": "'
-                + parent_id
-                + '",    "pinned": false,    "type": "CollectionType",    "visibleName": "'
-                + visible_name
-                + '"}'
-            )
-            fp.write(metadata_json)
-        with open(pathlib.Path(tmp_folder, file_content), "w+") as fp:
-            content_json = """{"tags": []}"""
-            fp.write(content_json)
+        # Use json.dumps so names containing quotes/backslashes don't produce
+        # invalid metadata on the device.
+        metadata = {
+            "createdTime": current_timestamp_str,
+            "lastModified": current_timestamp_str,
+            "parent": parent_id,
+            "pinned": False,
+            "type": "CollectionType",
+            "visibleName": visible_name,
+        }
+        with open(metadata_path, "w") as fp:
+            json.dump(metadata, fp)
+        with open(content_path, "w") as fp:
+            fp.write('{"tags": []}')
 
-        cmd = f"scp -r {tmp_folder}/* {ssh_address(settings)}:{XOCHITL_BASE_FOLDER}"
-        result = subprocess.getoutput(cmd)
-        logging.getLogger().debug(result)
+        p = subprocess.run(
+            ["scp", str(metadata_path), str(content_path), f"{ssh_address(settings)}:{XOCHITL_BASE_FOLDER}"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            creationflags=subprocess_creation_flags,
+        )
+        LOGGER.debug(p.stdout)
+        if p.returncode != 0:
+            # Don't return a phantom folder id on failure — callers cache it.
+            raise RuntimeError(f"mkdir scp failed: returncode={p.returncode}, stdout={p.stdout}, stderr={p.stderr}")
     return file_id

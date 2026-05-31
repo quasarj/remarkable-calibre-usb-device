@@ -25,8 +25,9 @@ if TYPE_CHECKING:
 PLUGIN_NAME = "remarkable-calibre-usb-device"
 print("----------------------------------- REMARKABLE PLUGIN web interface ------------------------")
 device = None
-logging.basicConfig(level=logging.DEBUG)
-LOGGER = logging.getLogger()
+# Use a named child logger so we don't reconfigure Calibre's root logger.
+LOGGER = logging.getLogger(PLUGIN_NAME)
+LOGGER.setLevel(logging.DEBUG)
 
 RM_UUID = "#rm_uuid"
 
@@ -232,7 +233,7 @@ class RemarkableUsbDevice(DeviceConfig, DevicePlugin):
 
     @log_args_kwargs
     def get_device_uid(self):
-        return device.random_id
+        return device.uid
 
     @log_args_kwargs
     def get_file(self, path, outfile, end_session=True):

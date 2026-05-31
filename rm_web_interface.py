@@ -8,6 +8,8 @@ import uuid
 from enum import Enum
 from urllib import request
 
+LOGGER = logging.getLogger("remarkable-calibre-usb-device")
+
 HEADERS__CONTENT_TYPE__JSON = {"Content-Type": "application/json"}
 HEADERS__CHARSET__ISO88591 = {"charset": "ISO-8859-1"}
 
@@ -196,7 +198,7 @@ def upload_file(ip, local_path, folder_id, visible_name, **kwargs):
 
     # position pointer on folder
     resp = query_document(ip, folder_id)
-    logging.getLogger().debug(f"{resp=}")
+    LOGGER.debug(f"{resp=}")
 
     # upload
     with open(local_path, "rb") as fp:
@@ -220,7 +222,7 @@ def check_connection(ip: str):
         query_document(ip, "", timeout=2)
         return True
     except Exception as e:
-        logging.getLogger().warn("Unable to connect to remarkable", exc_info=True)
+        LOGGER.warning("Unable to connect to remarkable", exc_info=True)
         return False
 
 

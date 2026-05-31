@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import random
 import time
 from dataclasses import asdict, dataclass, field
 from typing import List
@@ -23,10 +22,11 @@ class RemarkableSettings:
 class RemarkableDeviceDescription:
     def __init__(self, ip):
         self.ip = ip
-        self.random_id = random.randint(0, 9999999999999)
+        # Stable per-device UID so Calibre recognizes the same device across reconnects.
+        self.uid = f"remarkable-{ip}"
 
     def __str__(self) -> str:
-        return f"Remarkable on http://{self.ip}, rid={self.random_id}"
+        return f"Remarkable on http://{self.ip}, uid={self.uid}"
 
 
 class RemarkableBookList(BookList):
@@ -72,8 +72,17 @@ class RemarkableBook:
 
     device_collections: List = field(default_factory=list)
 
-    def __eq__(self, other: RemarkableBook):  # type: ignore
-        return self.rm_uuid == other.rm_uuid or self.uuid == other.uuid
+    def __eq__(self, other: object):
+        if not isinstance(other, RemarkableBook):
+            return NotImplemented
+        # Match on either uuid, but only when the matching uuid is non-empty.
+        # Otherwise two newly-uploaded books that both have rm_uuid="" would be
+        # treated as the same book.
+        if self.rm_uuid and self.rm_uuid == other.rm_uuid:
+            return True
+        if self.uuid and self.uuid == other.uuid:
+            return True
+        return False
 
     def __post_init__(self):
         # When RemarkableBook is created from a json blob the argument is a n array and must be converted properly
