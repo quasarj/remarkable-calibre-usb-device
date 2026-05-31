@@ -116,35 +116,6 @@ def test_connection(settings: RemarkableSettings):
 
 
 @log_args_kwargs
-def sed(settings: RemarkableSettings, xochitl_filename, i: str, o: str):
-    p = subprocess.Popen(
-        (
-            "ssh",
-            *ssh_options2,
-            ssh_address(settings),
-            f"sed -i -e 's/{i}/{o}/g' {XOCHITL_BASE_FOLDER}/{xochitl_filename}",
-        ),
-        shell=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        creationflags=subprocess_creation_flags,
-    )
-    p.wait()
-
-
-@log_args_kwargs
-def get_latest_upload_uuid(settings: RemarkableSettings):
-    p = subprocess.run(
-        ["ssh", *ssh_options2, ssh_address(settings), f"cd {XOCHITL_BASE_FOLDER}; ls -Art *.metadata | tail -n 1"],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        creationflags=subprocess_creation_flags,
-    )
-    return p.stdout.strip().replace(".metadata", "")
-
-
-@log_args_kwargs
 def rm(settings: RemarkableSettings, paths: list[str]):
     p = subprocess.run(
         ["ssh", *ssh_options2, ssh_address(settings), f"cd {XOCHITL_BASE_FOLDER}; rm {paths} -Rf"],
