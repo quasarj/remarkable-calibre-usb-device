@@ -146,6 +146,22 @@ class RemarkableUsbDevice(DeviceConfig, DevicePlugin):
             news_in_folder=self.NEWS_IN_FOLDER,
         )
 
+    @staticmethod
+    def _unsanitize_folder_part(sanitized: str, m) -> str:
+        """Recover the unsanitized display name for a folder part by checking
+        which metadata field, when sanitized, produces `sanitized`. Falls back
+        to `sanitized` if nothing matches (e.g. literal template segments like
+        'calibre', or folders that came from somewhere we don't know about)."""
+        if not sanitized or m is None:
+            return sanitized
+        from calibre.utils.filenames import ascii_filename as sanitize  # type: ignore
+
+        for field in ("author_sort", "title", "publisher", "series"):
+            value = m.get(field)
+            if value and sanitize(str(value)) == sanitized:
+                return str(value)
+        return sanitized
+
     @log_args_kwargs
     def upload_books(self, files_original, names, on_card=None, end_session=True, metadata: list[Metadata] = None):
         locations = []
@@ -164,16 +180,20 @@ class RemarkableUsbDevice(DeviceConfig, DevicePlugin):
             if has_ssh and upload_path:
                 parts = upload_path.split("/")
                 parts = parts[:-1]
+                display_parts = [self._unsanitize_folder_part(p, m) for p in parts]
                 parent_folder_id = ""
                 for i in range(len(parts)):
-                    part_full = "/".join(parts[: i + 1])
-                    LOGGER.debug(f"Looking if {part_full=} already exists on remarkable")
-                    folder_id_final = existing_folders.get(part_full)
+                    sanitized_full = "/".join(parts[: i + 1])
+                    display_full = "/".join(display_parts[: i + 1])
+                    LOGGER.debug(f"Looking if {display_full=} (sanitized={sanitized_full!r}) already exists on remarkable")
+                    # Prefer the display-name folder (created by this code post-fix);
+                    # fall back to the sanitized name so legacy folders created before
+                    # the fix keep getting reused instead of being duplicated.
+                    folder_id_final = existing_folders.get(display_full) or existing_folders.get(sanitized_full)
                     LOGGER.debug(f"{folder_id_final=}")
                     if not folder_id_final:
-                        part_name = parts[i]
-                        folder_id_final = rm_ssh.mkdir(settings, part_name, parent_folder_id)
-                        existing_folders[part_full] = folder_id_final
+                        folder_id_final = rm_ssh.mkdir(settings, display_parts[i], parent_folder_id)
+                        existing_folders[display_full] = folder_id_final
                         needs_reboot = True
                         LOGGER.debug(f"after mkdir {folder_id_final=}")
                     parent_folder_id = folder_id_final
@@ -181,7 +201,11 @@ class RemarkableUsbDevice(DeviceConfig, DevicePlugin):
 
             if has_ssh:
                 file_type = pathlib.Path(local_path).suffix.lower().lstrip(".")
-                display_name = pathlib.Path(visible_name).stem
+                # Prefer the real title from Calibre's metadata. `visible_name`
+                # is the filename Calibre generated via `ascii_filename`, which
+                # substitutes characters like apostrophe (ASCII 39) with `_39`.
+                title = m.get("title") if m is not None else None
+                display_name = title or pathlib.Path(visible_name).stem
                 file_uuid = rm_ssh.upload_document(
                     settings,
                     local_path,
