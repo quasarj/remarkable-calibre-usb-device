@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import pathlib
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -170,6 +171,110 @@ def cat(settings: RemarkableSettings, file: str):
     result = p.stdout.strip()
     LOGGER.debug(f"cat {result=}")
     return result
+
+
+@log_args_kwargs
+def upload_document(
+    settings: RemarkableSettings,
+    local_path: str,
+    visible_name: str,
+    file_type: str,
+    parent_id: str = "",
+    page_count: int = 0,
+) -> str:
+    """
+    Write the full xochitl document layout (.pdf/.epub, .metadata, .content,
+    .pagedata + 5 companion dirs) directly via scp. Returns the new doc uuid.
+    Much faster than the web upload, and lets us set `parent` at write time
+    instead of guessing the uuid back and sed-patching it.
+    """
+    if file_type not in ("pdf", "epub"):
+        raise ValueError(f"unsupported file_type: {file_type!r}")
+
+    doc_id = str(uuid.uuid4())
+    now_ms = str(int(time.time() * 1000))
+
+    metadata = {
+        "deleted": False,
+        "lastModified": now_ms,
+        "metadatamodified": False,
+        "modified": False,
+        "parent": parent_id,
+        "pinned": False,
+        "synced": True,
+        "type": "DocumentType",
+        "version": 1,
+        "visibleName": visible_name,
+    }
+    content = {
+        "extraMetadata": {},
+        "fileType": file_type,
+        "fontName": "",
+        "lastOpenedPage": 0,
+        "lineHeight": -1,
+        "margins": 100,
+        "orientation": "portrait",
+        "pageCount": page_count,
+        "pages": [],
+        "textScale": 1,
+        "transform": {
+            "m11": 1, "m12": 0, "m13": 0,
+            "m21": 0, "m22": 1, "m23": 0,
+            "m31": 0, "m32": 0, "m33": 1,
+        },
+    }
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = pathlib.Path(tmp)
+        doc_path = tmp_path / f"{doc_id}.{file_type}"
+        metadata_path = tmp_path / f"{doc_id}.metadata"
+        content_path = tmp_path / f"{doc_id}.content"
+        pagedata_path = tmp_path / f"{doc_id}.pagedata"
+
+        # Stage by copy so scp can transfer everything in a single call
+        # (scp won't rename when given multiple sources + a dir destination).
+        shutil.copyfile(local_path, doc_path)
+        with open(metadata_path, "w") as fp:
+            json.dump(metadata, fp)
+        with open(content_path, "w") as fp:
+            json.dump(content, fp)
+        pagedata_path.touch()
+
+        p = subprocess.run(
+            [
+                "scp",
+                *ssh_options2,
+                str(doc_path),
+                str(metadata_path),
+                str(content_path),
+                str(pagedata_path),
+                f"{ssh_address(settings)}:{XOCHITL_BASE_FOLDER}/",
+            ],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            creationflags=subprocess_creation_flags,
+        )
+        if p.returncode != 0:
+            raise RuntimeError(
+                f"upload_document scp failed: returncode={p.returncode}, stdout={p.stdout}, stderr={p.stderr}"
+            )
+
+    # Companion dirs. xochitl populates them on demand, but they must exist.
+    companion_dirs = " ".join(f"{doc_id}{suffix}" for suffix in ("", ".cache", ".highlights", ".textconversion", ".thumbnails"))
+    p = subprocess.run(
+        ["ssh", *ssh_options2, ssh_address(settings), f"cd {XOCHITL_BASE_FOLDER} && mkdir -p {companion_dirs}"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        creationflags=subprocess_creation_flags,
+    )
+    if p.returncode != 0:
+        raise RuntimeError(
+            f"upload_document mkdir failed: returncode={p.returncode}, stdout={p.stdout}, stderr={p.stderr}"
+        )
+
+    return doc_id
 
 
 @log_args_kwargs

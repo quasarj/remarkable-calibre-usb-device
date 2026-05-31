@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import pathlib
 import posixpath
 import tempfile
 from dataclasses import asdict
@@ -158,42 +159,43 @@ class RemarkableUsbDevice(DeviceConfig, DevicePlugin):
         existing_folders = rm_web_interface.query_tree(settings.IP, "").ls_dir_recursive_dict() if has_ssh else {}
         needs_reboot = False
         for local_path, visible_name, m in zip(files_original, names, metadata):
-            folder_id = ""
             folder_id_final = ""
-            is_new_folder = False
             upload_path = self._create_upload_path(m, visible_name)
-            if has_ssh:
-                if upload_path:
-                    parts = upload_path.split("/")
-                    parts = parts[:-1]
-                    parent_folder_id = ""
-                    for i in range(len(parts)):
-                        part_full = "/".join(parts[: i + 1])
-                        LOGGER.debug(
-                            f"Looking if {part_full=} already exists on remarkable",
-                        )
-                        # FIXME: does not work when folder is new, and uploading multiple files at the same time
-                        folder_id_final = existing_folders.get(part_full)
-                        LOGGER.debug(f"{folder_id_final=}")
-                        if not folder_id_final:
-                            part_name = parts[i]
-                            folder_id_final = rm_ssh.mkdir(settings, part_name, parent_folder_id)
-                            existing_folders[part_full] = folder_id_final
-                            needs_reboot = True
-                            LOGGER.debug(f"after mkdir {folder_id_final=}")
-                            is_new_folder = True
-                        parent_folder_id = folder_id_final
+            if has_ssh and upload_path:
+                parts = upload_path.split("/")
+                parts = parts[:-1]
+                parent_folder_id = ""
+                for i in range(len(parts)):
+                    part_full = "/".join(parts[: i + 1])
+                    LOGGER.debug(f"Looking if {part_full=} already exists on remarkable")
+                    folder_id_final = existing_folders.get(part_full)
+                    LOGGER.debug(f"{folder_id_final=}")
+                    if not folder_id_final:
+                        part_name = parts[i]
+                        folder_id_final = rm_ssh.mkdir(settings, part_name, parent_folder_id)
+                        existing_folders[part_full] = folder_id_final
+                        needs_reboot = True
+                        LOGGER.debug(f"after mkdir {folder_id_final=}")
+                    parent_folder_id = folder_id_final
             locations.append(upload_path)
 
-            # FIXME: fails when author has special character ';'
-            rm_web_interface.upload_file(settings.IP, local_path, folder_id_final, visible_name)
-
             if has_ssh:
-                file_uuid = rm_ssh.get_latest_upload_uuid(settings)
-                m.set_user_metadata(RM_UUID, {"#value#": file_uuid, "datatype": "text"})
-                rm_ssh.sed(settings, f"{file_uuid}.metadata", '"parent": ""', f'"parent": "{folder_id_final}"')
-                if is_new_folder:
-                    needs_reboot = True
+                file_type = pathlib.Path(local_path).suffix.lower().lstrip(".")
+                display_name = pathlib.Path(visible_name).stem
+                file_uuid = rm_ssh.upload_document(
+                    settings,
+                    local_path,
+                    display_name,
+                    file_type=file_type,
+                    parent_id=folder_id_final,
+                )
+                if m is not None:
+                    m.set_user_metadata(RM_UUID, {"#value#": file_uuid, "datatype": "text"})
+                needs_reboot = True
+            else:
+                # Web fallback. Note: this path still fails when the author/title
+                # contains characters the web upload can't handle (e.g. ';').
+                rm_web_interface.upload_file(settings.IP, local_path, folder_id_final, visible_name)
 
             self.progress += step
 
